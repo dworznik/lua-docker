@@ -1,9 +1,9 @@
-package = "docker"
+package = "resty-docker"
 
 version = "scm"
 
 source = {
-  url = "git://github.com/rokf/lua-docker"
+  url = "git://github.com/dworznik/lua-resty-docker"
 }
 
 description = {
@@ -13,8 +13,9 @@ description = {
     by writing Lua code. You can do pretty much all
     the things you could do with the docker command-line
     tool.
+    https://github.com/rokf/lua-docker modified to work in nginx environment with resty-http
   ]],
-  homepage = "https://github.com/rokf/lua-docker",
+  homepage = "https://github.com/dworznik/lua-resty-docker",
   license = "MIT"
 }
 
@@ -22,7 +23,7 @@ dependencies = {
   "lua >= 5.1",
   "cjson",
   "basexx",
-  "http"
+  ""
 }
 
 build = {

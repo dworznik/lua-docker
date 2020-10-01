@@ -1,4 +1,4 @@
-# lua-docker [WIP]
+# lua-resty-docker [WIP]
 
 A Docker Engine API wrapper for Lua
 

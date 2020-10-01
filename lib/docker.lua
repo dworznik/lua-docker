@@ -1,9 +1,9 @@
-local client = require 'http.client'
-local headers = require 'http.headers'
-local util = require 'http.util'
+local http = require 'resty.http'
+local util = require 'util'
 
 local cjson = require 'cjson.safe'
 local basexx = require 'basexx'
+
 
 local handle_response_body = function (body)
   if type(body) == 'string' then
@@ -42,6 +42,11 @@ local perform_request = function (instance, method, endpoint, query, authority, 
   local connection, stream
   local instance_check
 
+  local httpc = http.new()
+
+  local log = ngx.log
+  local ERR = ngx.ERR
+
   instance_check, err = validate_instance(instance)
 
   if instance_check == nil then
@@ -56,48 +61,25 @@ local perform_request = function (instance, method, endpoint, query, authority, 
     return nil, "endpoint should be a string"
   end
 
-  connection, err, errn = client.connect {
-    host = instance.host,
-    path = instance.path,
-    version = 1.1,
-    sendname = true,
-    port = 80,
-    tls = false
-  }
+  local ok, err = httpc:connect("unix:" .. instance.path)
 
   -- error while making connection
 
-  if connection == nil then
-    return connection, err, errn
+  if err then
+    log(ERR, 'dupa')
+    return nil, err, nil
   end
 
-  stream = connection:new_stream()
-
-  -- error while creating stream
-
-  if stream == nil then
-    return stream, err, errn
-  end
-
-  -- prepare headers
-
-  local h = headers.new()
-
-  h:append(':method', method or 'GET')
-
-  -- HTTP 1.1 seems to require this header
-
-  h:append(':authority', '')
-
-  h:append(':path', string.format(
+  local path = string.format(
     '/%s%s%s',
     instance.version,
     endpoint,
-    (type(query) == 'table') and '?' .. util.dict_to_query(query) or ''
-  ))
+    (type(query) == 'table') and '?' .. util.dict_to_query(query) or '')
 
-  h:append('content-type', body and 'application/json' or 'text/plain')
-  h:append('user-agent', 'lua-docker')
+  local headers = {}
+  headers['content-type'] = body and 'application/json' or 'text/plain'
+  headers['user-agent'] = 'lua-docker'
+  headers['host'] = 'docker'
 
   -- docker uses a custom authority header
 
@@ -107,7 +89,7 @@ local perform_request = function (instance, method, endpoint, query, authority, 
       return nil, e, nil
     end
     local base64_encoded_authority = basexx.to_base64(json_authority)
-    h:append('X-Registry-Auth', base64_encoded_authority)
+    headers['X-Registry-Auth'] = base64_encoded_authority
   end
 
   local encoded_body, e
@@ -121,58 +103,38 @@ local perform_request = function (instance, method, endpoint, query, authority, 
     else
       encoded_body = tostring(body)
     end
-    h:append('content-length', tostring(#encoded_body))
+    headers['content-length'] = tostring(#encoded_body)
   end
 
-  -- write data to stream
 
-  local end_after_headers = true
+  local res, err = httpc:request {
+    method = method,
+    path = path,
+    headers = headers,
+    body = encoded_body
+  }
 
-  if body then end_after_headers = false end
-
-  wh_failure, err, errn = stream:write_headers(h, end_after_headers)
-
-  -- error while writing headers to stream
-
-  if wh_failure == nil then
-    return wh_failure, err, errn
+  local res_status, res_body, res_headers
+  if res then
+    res_status = res.status
+    res_body = res:read_body()
+    res_headers = res.headers
   end
 
-  if body then
-    wb_failure, err, errn = stream:write_body_from_string(encoded_body)
+  log(ERR, 'status: ' .. res_status)
 
-    -- error while writing body to stream
-
-    if wb_failure == nil then
-      return wb_failure, err, errn
+  if err then
+    if res then
+      return res_body, err, res_status
     end
   end
 
-  -- read response
-
-  response_headers, err, errn = stream:get_headers()
-
-  -- error getting response headers
-
-  if response_headers == nil then
-    return response_headers, err, errn
-  end
-
-
-  response_body, err, errn = stream:get_body_as_string()
-
-  -- error getting response body
-
-  if response_body == nil then
-    return response_body, err, errn
-  end
-
   -- successfull response
-
+  log(ERR, res_body)
   return {
-    body = handle_response_body(response_body),
-    headers = response_headers,
-    status = tonumber(response_headers:get(':status'))
+    body = res_body,
+    headers = res_headers,
+    status = status
   }
 end
 
@@ -209,6 +171,7 @@ return {
       custom = perform_request,
 
       get_version = function (self)
+        print('dupa')
         return perform_request(self, 'GET', '/version')
       end,
 
